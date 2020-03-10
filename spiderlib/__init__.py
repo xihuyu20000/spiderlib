@@ -14,14 +14,15 @@ from pyppeteer import launch
 from lxml import html
 import pymysql
 import numpy as np
+import base64
+import requests
 
 
 class NoLogger:
     """
     不输出日志
     """
-    @staticmethod
-    def log(tag, info, ts=0):
+    def log(self, tag, info, ts=0):
         pass
 
 
@@ -29,8 +30,7 @@ class ConsoleLogger:
     """
     输出日志到控制台
     """
-    @staticmethod
-    def log(tag, info, ts=0):
+    def log(self, tag, info, ts=0):
         cur = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))
         if ts:
             print("{}\t{}\t{}\t耗时{}秒".format(cur, tag, info, round(ts, 3)))
@@ -39,7 +39,6 @@ class ConsoleLogger:
 
     def __str__(self):
         return 'ConsoleLogger'
-
 
 class MemoryRedup:
     """
@@ -135,15 +134,44 @@ class MySQLDao:
             self.db.close()
 
 
+class WordPressDao:
+    """
+    结果发布到wordpress
+    """
+    def __init__(self, host='localhost', user='root', password='admin'):
+        self.host = host
+        self.user = user
+        self.password = password
+
+    def save(self, matrix):
+        for article in matrix[1:]:
+            try:
+                data = {
+                    'title': article[0],
+                    'content': article[1],
+                    'status': "publish",
+                    'comment_status': "open"
+                }
+                auth = str.encode('{}:{}'.format(self.user, self.password))
+                headers = {'Authorization': 'Basic ' + str(base64.b64encode(auth), 'utf-8')}
+                resp = requests.post('http://{}/index.php/wp-json/wp/v2/posts'.format(self.host), headers=headers, data=data)
+                if resp.status_code>201:
+                    raise Exception(resp)
+            except Exception as e:
+                raise e
+
+    def __str__(self):
+        return 'WordPressDao'
+
 class Spider:
     def __init__(self, redup=MemoryRedup(), dao=ConsoleDao(), logger=ConsoleLogger()):
         """
-        :param redup: 判断重复的类
-        :param dao: 持久化的类
-        :param logger: 日志类
+        :param redup: 判断重复的类，必须生成对象，可选类有MemoryRedup、RedisRedup
+        :param dao: 持久化的类，必须生成对象，可选类有ConsoleDao、FileDao、MySQLDao、WordPressDao
+        :param logger: 日志类，必须生成对象，可选类有NoLogger、ConsoleLogger
         """
         self.pid = os.getpid()
-        logger.log('爬虫实例进程={}'.format(self.pid),  'redup={} dao={} logger={}'.format(redup, dao, logger))
+        logger.log(tag='爬虫实例进程={}'.format(self.pid), info='redup={} dao={} logger={}'.format(redup, dao, logger))
         self.redup = redup
         self.dao = dao
         self.logger = logger
@@ -159,9 +187,9 @@ class Spider:
     def list(self, alias, site, **kwargs):
         """
         列表网页
-        :param alias:
-        :param site:
-        :param kwargs:
+        :param alias: 网站名称，方便记忆
+        :param site: 列表页地址
+        :param kwargs: xpath表达式，必须使用url作为名称
         :return:
         """
         self.logger.log(alias, '网址 {}  list参数 {}'.format(site, kwargs))
@@ -174,14 +202,14 @@ class Spider:
     def article(self, **kwargs):
         """
         文章页面
-        :param kwargs:
+        :param kwargs: xpath表达式
         :return:
         """
         self.logger.log(self.alias, 'article参数 {}'.format(kwargs))
         self.next_kwargs = dict(kwargs)
         return self
 
-    async def download_list(self, alias, site, kwargs):
+    async def __download_list(self, alias, site, kwargs):
         """
         下载列表
         :param alias:
@@ -211,7 +239,7 @@ class Spider:
             self.logger.log(alias, '下载列表{}报错  {}'.format(site, 'traceback.format_exc():\n%s' % traceback.format_exc()))
             return {}
 
-    async def download_article(self, alias, site):
+    async def __download_article(self, alias, site):
         """
         下载文章
         :param alias:
@@ -243,7 +271,7 @@ class Spider:
             self.logger.log(alias, '下载文章{}报错  {}'.format(site, 'traceback.format_exc():\n%s' % traceback.format_exc()))
             return {}
 
-    def save(self, url, values):
+    def __save(self, url, values):
         assert values
         self.logger.log(self.alias, 'save参数 {}'.format(values))
         try:
@@ -274,27 +302,27 @@ class Spider:
         try:
             if self.start_kwargs:
                 loop = asyncio.get_event_loop()
-                values = asyncio.ensure_future(self.download_list(self.alias, self.start_site, self.start_kwargs))
+                values = asyncio.ensure_future(self.__download_list(self.alias, self.start_site, self.start_kwargs))
                 loop.run_until_complete(values)
                 values = values.result()
 
             if not self.next_kwargs:
-                self.save(self.start_site, values)
+                self.__save(self.start_site, values)
 
             if self.next_kwargs:
                 for url in values.get('url'):
                     loop = asyncio.get_event_loop()
-                    values = asyncio.ensure_future(self.download_article(self.alias, url))
+                    values = asyncio.ensure_future(self.__download_article(self.alias, url))
                     loop.run_until_complete(values)
                     values = values.result()
                     if values:
-                        self.save(url, values)
-            self.kill()
+                        self.__save(url, values)
+            self.__kill()
         except:
             self.logger.log(self.alias, '运行报错 {}'.format('traceback.format_exc():\n%s' % traceback.format_exc()))
-            self.kill()
+            self.__kill()
 
-    def kill(self):
+    def __kill(self):
         try:
             # win平台
             if platform.system() == 'Windows':
@@ -306,3 +334,6 @@ class Spider:
         except:
             self.logger.log(self.alias, '杀死进程报错 {}'.format('traceback.format_exc():\n%s' % traceback.format_exc()))
 
+
+spider = Spider(dao=WordPressDao(host='hadoop100:86'))
+spider.list('博客园精华', site="https://www.cnblogs.com/pick/", url="//a[@class='titlelnk']//@href").article(title="//a[@id='cb_post_title_url']//text()", content="//div[@id='cnblogs_post_body']//text()").run()
