@@ -1,0 +1,21 @@
+
+#
+
+#安装打包工具
+python -m pip install --user --upgrade setuptools wheel twine
+
+#打包命令,  在dist目录下会产生tar.gz和whl文件
+python setup.py sdist bdist_wheel
+
+#把模块安装到本地，这样你就可以在本地import导入使用这个模块了。
+python setup.py install
+
+#上传到服务器
+python -m twine upload --repository-url https://test.pypi.org/legacy/ dist/*
+
+#测试上传是否成功
+#https://test.pypi.org/search/网站，就能看到刚上传的模块
+pip install -U -i https://test.pypi.org/simple/ spliderlib
+
+#上传到正式库
+python -m twine upload dist/*
