@@ -329,11 +329,11 @@ class Spider:
                 subprocess.Popen("taskkill /pid {} /f".format(self.pid), shell=True)
             # linux平台
             if platform.system() == 'Linux':
-                os.kill(self.pid, signal.SIGKILL)
+                os.system("ps -ef |grep chrome |awk '{print $2}'|xargs kill -9")
                 self.browser.process.wait()
         except:
             self.logger.log(self.alias, '杀死进程报错 {}'.format('traceback.format_exc():\n%s' % traceback.format_exc()))
 
 
-spider = Spider(dao=WordPressDao(host='hadoop100:86'))
-spider.list('博客园精华', site="https://www.cnblogs.com/pick/", url="//a[@class='titlelnk']//@href").article(title="//a[@id='cb_post_title_url']//text()", content="//div[@id='cnblogs_post_body']//text()").run()
+# spider = Spider(dao=WordPressDao(host='hadoop100:84'))
+# spider.list('博客园精华', site="https://www.cnblogs.com/pick/", url="//a[@class='titlelnk']//@href").article(title="//a[@id='cb_post_title_url']//text()", content="//div[@id='cnblogs_post_body']//text()").run()
