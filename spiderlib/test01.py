@@ -25,6 +25,27 @@ def test_FilePipeline2():
     spider.run()
 
 
+def test_FilePipeline3():
+    """
+    测试常量表达式，结果写入到一个文件a3.txt
+    :return:
+    """
+    spider = Spider('博客园精华', pipeline=FilePipeline('../a3.txt', sep="\t\t"))
+    print(spider)
+    spider.page(urls="https://www.cnblogs.com/pick/", expresses={"link":"//a[@class='titlelnk']//@href", "时间戳":5656567567567}, fields={"网址":"link", "时间戳":"时间戳"}, is_list=True)
+    spider.run()
+
+
+def test_FilePipeline4():
+    """
+    测试常量保存值，结果写入到一个文件a4.txt
+    :return:
+    """
+    spider = Spider('博客园精华', pipeline=FilePipeline('../a4.txt', sep="\t\t"))
+    cur = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))
+    spider.page(urls="https://www.cnblogs.com/pick/", expresses={"link":"//a[@class='titlelnk']//@href"}, fields={"网址":"link", "时间戳":cur}, is_list=True)
+    spider.run()
+
 def test_MySQLPipeline1():
     """
     结果写入到
@@ -48,7 +69,9 @@ def test_WordPressPipeline1():
 
 
 if __name__ == '__main__':
-    test_FilePipeline1()
+    # test_FilePipeline1()
     # test_FilePipeline2()
+    # test_FilePipeline3()
+    test_FilePipeline4()
     # test_MySQLPipeline1()
     # test_WordPressPipeline1()

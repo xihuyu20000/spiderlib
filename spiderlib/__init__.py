@@ -266,7 +266,7 @@ class Template:
         self.child = None
 
     def __str__(self):
-        return '(Template:  urls={}  expresses={}  next={}  fields_tag={}  fields={} is_list={} hooker={} child={})'.format(self.urls, self.expresses, self.next, self.fields_tag, self.fields, self.is_list, self.hooker, self.child)
+        return '({}Template:  urls={}  expresses={}  next={}  fields_tag={}  fields={} is_list={} hooker={} child={})'.format('列表' if self.is_list else '实体', self.urls, self.expresses, self.next, self.fields_tag, self.fields, self.is_list, self.hooker, self.child)
     __repr__ = __str__
 
 
@@ -350,9 +350,12 @@ class Spider:
         """
         抓取信息配置
         :param urls: 被抓取的url列表，可以是list，也可以是str
-        :param expresses: dict，抓取的字段和xpath
+        :param expresses: dict，抓取的字段和xpath。如果表达式，不是/开头；那就是常量
         :param fields_tag: str，表名或者文件名。不同内容对应到不同的输出
-        :param fields: dict，保存时指定的名称，抓取的字段名与保存的字段名之间的映射关系。如果不填写，那么就不会保存数据。抓取的时候，有个字段是pid，表示前一页面的url
+        :param fields: dict，保存时指定的名称，抓取的字段名与保存的字段名之间的映射关系。
+        如果不填写，那么就不会保存数据。
+        抓取的时候，有个字段是pid，表示前一页面的url。
+        也可以设置常量字段，比如时间戳之类的
         :param next: str，传递给下一级抓取时，指定的字段名，这个字段名一定出现在expresses的key中。如果url需要补全，在这里可以实现
         :param is_list: bool，是否是文章或者新闻。如果是列表，写True；如果是具体的数据，写False
         :param hooker: Hooker 用于hook
@@ -390,14 +393,23 @@ class Spider:
             content = await  browser_page.content()
             root_element = html.etree.HTML(content)
             for key, value in page.template.expresses.items():
-                content = root_element.xpath(value)
-                if not page.template.is_list:
-                    content = ["".join(content)]
-                page.values[key] = content
+                value = str(value)
+                if value.startswith("/"):
+                    content = root_element.xpath(value)
+                    if not page.template.is_list:
+                        content = ["".join(content)]
+                    page.values[key] = content
+            #抓取的记录条数
+            rows = len(list(page.values.get(list(page.values.keys())[0])))
+            #表达式，不是/开头；那就是常量
+            for key, value in page.template.expresses.items():
+                value = str(value)
+                if not value.startswith("/"):
+                    page.values[key] = [str(value) for i in range(rows)]
             await browser_page.close()
 
             page.template.hooker.after_download(page)
-            self.logger.log(self.alias, '下载列表 {} 共计{}条 '.format(url, len(list(page.values.get(list(page.values.keys())[0])))),(time.time() - start))
+            self.logger.log(self.alias, '下载列表 {} 共计{}条 '.format(url, rows),(time.time() - start))
         except:
             self.logger.log(self.alias,
                             '下载列表{}报错  {}'.format(url, 'traceback.format_exc():\n%s' % traceback.format_exc()))
@@ -442,6 +454,16 @@ class Spider:
             page.matrix[0].append(key_pid)
             for vlist in page.matrix[1:]:
                 vlist.append(page.parent)
+
+        # 判断常量字段，指的是在expresses的key中没有出现过
+        expresses_keys = page.template.expresses.keys()
+        for k,v in page.template.fields.items():
+            #不在，就是常量
+            if not str(v) in expresses_keys:
+                page.matrix[0].append(k)
+                for vlist in page.matrix[1:]:
+                    vlist.append(str(v))
+
         #钩子函数
         page.template.hooker.before_save(page)
 
