@@ -28,8 +28,8 @@ else:
     install_requires = []
 
 setuptools.setup(
-    name="spiderlib",
-    version="0.0.4",
+    name="spiderlibs",
+    version="0.0.3",
     author="wu chao",
     license='MIT License',
     author_email="377486624@qq.com",

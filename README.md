@@ -1,7 +1,7 @@
 # spiderlib
 爬虫
 
-# 版本0.0.4
-* Linux下，爬虫运行结束，只能使用kill杀死chrome
 # 版本0.0.3
-* 抓取的文章可以直接发布到wordpress
+依赖于Scrapy，扩展性更强
+# 版本0.0.2
+可以正常运行

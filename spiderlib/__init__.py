@@ -1,5 +1,7 @@
-import platform
-import signal
+import copy
+import queue
+import re
+from functools import reduce
 
 name = 'spiderlib'
 author = '吴超  QQ 377486624'
@@ -8,6 +10,7 @@ import subprocess
 import time
 import traceback
 import os
+import platform
 import redis
 import asyncio
 from pyppeteer import launch
@@ -39,6 +42,7 @@ class ConsoleLogger:
 
     def __str__(self):
         return 'ConsoleLogger'
+
 
 class MemoryRedup:
     """
@@ -77,31 +81,48 @@ class RedisRedup:
     def load(self, url, name=NAME):
         self.r.sadd(RedisRedup.NAME, url)
 
+    def __str__(self):
+        return 'RedisRedup'
 
-class ConsoleDao:
+
+class ConsolePipeline:
     """
     结果输出到控制台
     """
-    def save(self, matrix):
-        for line in matrix:
+    def save(self, values, tag):
+        print("=======================================输出结果到控制台=======================================")
+        for line in values:
             print(line)
 
+    def __str__(self):
+        return 'ConsolePipeline'
 
-class FileDao:
+
+class FilePipeline:
     """
     结果输出到文件
     """
     def __init__(self, path="data.txt"):
         self.path = path
 
-    def save(self, matrix):
-        with open(self.path, 'w', encoding='utf8') as f:
-            for line in matrix:
+    def save(self, values, file_path):
+        """
+        保存。有错抛异常
+        :param matrix:
+        :return:
+        """
+        path = file_path if file_path else self.path
+        with open(path, 'w', encoding='utf8') as f:
+            for line in values:
                 f.write('\t'.join(line))
                 f.write(os.linesep)
+                f.flush()
+
+    def __str__(self):
+        return 'FilePipeline'
 
 
-class MySQLDao:
+class MySQLPipeline:
     """
     结果输出到MySQL
     """
@@ -110,22 +131,30 @@ class MySQLDao:
         self.c = self.db.cursor()
         self.table_name = table
 
-    def save(self, matrix):
+    def save(self, values, table_name=''):
+        """
+        保存
+        :param values:
+        :return: 有错抛异常
+        """
+        sql = ''
+        t_name = table_name if table_name else  self.table_name
         try:
-            fields = ",".join(matrix[0])
-            for index in range(1, len(matrix)):
+            fields = ",".join(values[0])
+            for index in range(1, len(values)):
                 # 执行sql语句
-                sql = u"""INSERT INTO %s(%s) VALUES (%s)"""%(self.table_name, fields,  ",".join(['"'+pymysql.escape_string(v)+'"' for v in matrix[index]]))
+                sql = u"""INSERT INTO %s(%s) VALUES (%s)"""%(t_name, fields,  ",".join(['"'+pymysql.escape_string(v)+'"' for v in values[index]]))
                 self.c.execute(sql)
             # 提交到数据库执行
             self.db.commit()
         except Exception as e:
+            print(sql)
             # 如果发生错误则回滚
             self.db.rollback()
             raise e
 
     def __str__(self):
-        return 'MySQLDao'
+        return 'MySQLPipeline'
 
     def __del__(self):
         if self.c:
@@ -134,17 +163,22 @@ class MySQLDao:
             self.db.close()
 
 
-class WordPressDao:
+class WordPressPipeline:
     """
-    结果发布到wordpress
+    结果发布到WordPress
     """
     def __init__(self, host='localhost', user='root', password='admin'):
         self.host = host
         self.user = user
         self.password = password
 
-    def save(self, matrix):
-        for article in matrix[1:]:
+    def save(self, values, tag=''):
+        """
+        保存
+        :param values:
+        :return: 有错抛异常
+        """
+        for article in values[1:]:
             try:
                 data = {
                     'title': article[0],
@@ -161,168 +195,251 @@ class WordPressDao:
                 raise e
 
     def __str__(self):
-        return 'WordPressDao'
+        return 'WordPressPipeline'
+
+
+class MemoryScheduler:
+    """
+    内存调度器
+    """
+    def __init__(self, maxsize=0):
+        self.q = list()
+
+    def put(self, ele):
+        """
+        插入到尾部
+        :param ele:
+        :return:
+        """
+        self.q.append(ele)
+        return True
+
+    def head(self):
+        """
+        只读取，不删除
+        :return:
+        """
+        return self.q[0] if len(self.q) else None
+
+    def remove_head(self):
+        """
+        删除头部元素，并返回
+        :return:
+        """
+        ele = self.q.pop(0)
+        print("调度器剩余容量"+str(self.len()))
+        return ele
+
+    def len(self):
+        return len(self.q)
+
+    def __str__(self):
+        return 'MemoryScheduler'
+
+
+class Template:
+    def __init__(self, urls, expresses, next, fields_tag, fields, is_list):
+        """
+        :param urls:
+        :param expresses:
+        :param next:
+        :param fields_tag: 表名
+        :param fields:
+        :param is_list: True表示列表页，False表示实体页
+        """
+        assert urls
+        assert isinstance(urls, list)
+        assert expresses
+        self.urls = urls
+        self.expresses = expresses
+        self.next = next
+        self.fields_tag = fields_tag
+        self.fields = fields
+        self.is_list = is_list
+        self.child = None
+
+    def __str__(self):
+        return '(Template:  urls={}  expresses={}  next={}  fields_tag={}  fields={} is_list={} child={})'.format(self.urls, self.expresses, self.next, self.fields_tag, self.fields, self.is_list, self.child)
+    __repr__ = __str__
+
+
+class Page:
+    def __init__(self, parent, url, template):
+        """
+        初始化方法，很重要。
+        parent是上级页面的url
+        :param parent: 上级页面的url
+        :param url:  本页面的url
+        :param template: 本页面对应的模板
+        """
+        self.parent = parent
+        self.url = url
+        self.template = template
+        self.values = {}
+
+    def __str__(self):
+        return '(Page: parent={}  url={}  values={}  template={})'.format(self.parent, self.url, self.values, self.template)
+    __repr__ = __str__
+
 
 class Spider:
-    def __init__(self, redup=MemoryRedup(), dao=ConsoleDao(), logger=ConsoleLogger()):
+    urlregex = re.compile(
+        r'^(?:http|ftp)s?://'  # http:// or https://
+        r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|'  # domain...
+        r'localhost|'  # localhost...
+        r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'  # ...or ip
+        r'(?::\d+)?'  # optional port
+        r'(?:/?|[/?]\S+)$', re.IGNORECASE)
+
+    def __init__(self, alias, redup=MemoryRedup(), scheduler=MemoryScheduler(), pipeline=ConsolePipeline(), logger=ConsoleLogger()):
         """
-        :param redup: 判断重复的类，必须生成对象，可选类有MemoryRedup、RedisRedup
-        :param dao: 持久化的类，必须生成对象，可选类有ConsoleDao、FileDao、MySQLDao、WordPressDao
-        :param logger: 日志类，必须生成对象，可选类有NoLogger、ConsoleLogger
+        实例化爬虫类，各个参数很重要，需要认真填写
+        :param alias: 网站名称，方便记忆
+        :param redup: 判断重复的类，必须创建对象，可选类有MemoryRedup、RedisRedup
+        :param scheduler: 调度器类，必须创建对象，可选类有MemoryScheduler
+        :param pipeline: 持久化的类，必须创建对象，可选类有ConsoleDao、FilePipeline、MySQLPipeline、WordPressPipeline
+        :param logger: 日志类，必须创建对象，可选类有NoLogger、ConsoleLogger
         """
         self.pid = os.getpid()
-        logger.log(tag='爬虫实例进程={}'.format(self.pid), info='redup={} dao={} logger={}'.format(redup, dao, logger))
-        self.redup = redup
-        self.dao = dao
-        self.logger = logger
-
-        self.alias = None
-        self.start_site = None
-        self.start_kwargs = {}
-        self.next_kwargs = {}
-
-        self.browser = asyncio.get_event_loop().run_until_complete(launch({'headless': True, 'args': ['--no-sandbox', '--disable-setuid-sandbox'], 'dumpio': True, 'slowMo': 1}))
-
-
-    def list(self, alias, site, **kwargs):
-        """
-        列表网页
-        :param alias: 网站名称，方便记忆
-        :param site: 列表页地址
-        :param kwargs: xpath表达式，必须使用url作为名称
-        :return:
-        """
-        self.logger.log(alias, '网址 {}  list参数 {}'.format(site, kwargs))
-        assert 'url' in kwargs.keys()
+        logger.log(tag='爬虫实例 进程={}'.format(self.pid), info='redup={} scheduler={} pipeline={} logger={}'.format(redup, scheduler, pipeline, logger))
         self.alias = alias
-        self.start_site = site
-        self.start_kwargs = dict(kwargs)
+        self.redup = redup
+        self.scheduler = scheduler
+        self.pipeline = pipeline
+        self.logger = logger
+        self.browser = asyncio.get_event_loop().run_until_complete(launch({'headless': True, 'args': ['--no-sandbox', '--disable-setuid-sandbox'], 'dumpio': True, 'slowMo': 1}))
+        self.template = None
+
+    def page(self, urls='', expresses={}, fields_tag='', fields={}, next='', is_list=False):
+        """
+        抓取信息配置
+        :param urls: 被抓取的url列表，可以是list，也可以是str
+        :param expresses: dict，抓取的字段和xpath
+        :param fields_tag: str，表名或者文件名。不同内容对应到不同的输出
+        :param fields: dict，保存时指定的名称，抓取的字段名与保存的字段名之间的映射关系。如果不填写，那么就不会保存数据
+        :param next: str，传递给下一级抓取时，指定的字段名，这个字段名一定出现在expresses的key中。如果url需要补全，在这里可以实现
+        :param is_list: bool，是否是文章或者新闻。如果是列表，写True；如果是具体的数据，写False
+        :return: self
+        """
+        self.logger.log(self.alias, 'page参数 urls={} expresses={} fields_tag={} fields={} next={} is_list={}'.format(urls, expresses, fields_tag, fields, next, is_list))
+        urls = [urls] if isinstance(urls, str) else urls
+        t = Template(urls, expresses, next, fields_tag, fields, is_list)
+        if self.template:
+            self.template.child = t
+        else:
+            self.template = t
         return self
 
-    def article(self, **kwargs):
+    async def __download(self, page):
         """
-        文章页面
-        :param kwargs: xpath表达式
-        :return:
+        下载页面
+        :param page:
+        :return: 重复url，返回False；否则，返回True
         """
-        self.logger.log(self.alias, 'article参数 {}'.format(kwargs))
-        self.next_kwargs = dict(kwargs)
-        return self
-
-    async def __download_list(self, alias, site, kwargs):
-        """
-        下载列表
-        :param alias:
-        :param site:
-        :param kwargs:
-        :return:
-        """
-        self.logger.log(alias, '网址 {}  download_list参数 {}'.format(site, kwargs))
-        start = time.time()
+        self.logger.log(self.alias, '__download参数 {}'.format(page))
+        assert page
+        assert isinstance(page, Page)
+        url = page.url
+        if self.redup.loaded(url):
+            return False
         try:
-            assert isinstance(site, str)
-            assert isinstance(kwargs, dict)
-            page = await self.browser.newPage()
+            assert re.match(Spider.urlregex, url)
+            start = time.time()
+            browser_page = await self.browser.newPage()
             try:
-                await page.goto(site)
+                await browser_page.goto(url)
             except:
-                self.logger.log(alias, '下载列表 {} 超时'.format(site), (time.time() - start))
-            content = await  page.content()
-            root = html.etree.HTML(content)
-            for key, value in kwargs.items():
-                result = root.xpath(value)
-                kwargs[key] = result
-            await page.close()
-            self.logger.log(alias, '下载列表 {} 共计{}条'.format(site, len(list(kwargs.get(list(kwargs.keys())[0])))), (time.time() - start))
-            return kwargs
+                self.logger.log(self.alias, '下载列表 {} 超时'.format(url), (time.time() - start))
+            content = await  browser_page.content()
+            root_element = html.etree.HTML(content)
+            for key, value in page.template.expresses.items():
+                content = root_element.xpath(value)
+                if not page.template.is_list:
+                    content = ["".join(content)]
+                page.values[key] = content
+            await browser_page.close()
+            self.logger.log(self.alias, '下载列表 {} 共计{}条 {}'.format(url, len(list(page.values.get(list(page.values.keys())[0]))), page.values),
+                            (time.time() - start))
         except:
-            self.logger.log(alias, '下载列表{}报错  {}'.format(site, 'traceback.format_exc():\n%s' % traceback.format_exc()))
-            return {}
+            self.logger.log(self.alias,
+                            '下载列表{}报错  {}'.format(url, 'traceback.format_exc():\n%s' % traceback.format_exc()))
+        return True
 
-    async def __download_article(self, alias, site):
+    def __pre_save(self, page):
+        self.logger.log(self.alias, '__pre_save参数 {}'.format(page))
+        # 定义一个二维数组
+        matrix = []
+        v_len = set()
+        for key, values in page.values.items():
+            v_len.add(len(values))
+            m = []
+            m.append(key)
+            for value in values:
+                m.append(value)
+            matrix.append(m)
+        if page.template.is_list and len(v_len) != 1:
+            raise Exception(self.alias +' 抓取字段的数量不一致 ' + str(page.values))
+        page.values = np.array(matrix).T
+
+    def __save(self, page):
+        self.logger.log(self.alias, '__save参数 {}'.format(page))
+        try:
+            self.pipeline.save(page.values, page.fields_tag)
+            return True
+        except:
+            self.logger.log(self.alias, '保存报错 {}'.format('traceback.format_exc():\n%s' % traceback.format_exc()))
+            return False
+
+    def __after_save(self, page):
         """
-        下载文章
-        :param alias:
-        :param site:
+        保存后，修改调度器信息
+        :param node:
         :return:
         """
-        if self.redup.loaded(site):
-            return {}
-        kwargs = self.next_kwargs
-        self.logger.log(alias, '网址 {}  download_article参数 {}'.format(site, kwargs))
-        start = time.time()
-        try:
-            assert isinstance(site, str)
-            assert isinstance(kwargs, dict)
-            page = await self.browser.newPage()
-            try:
-                await page.goto(site, {'timeout': 10000})
-            except:
-                self.logger.log(alias, '下载文章 {} 超时'.format(site), (time.time() - start))
-            content = await  page.content()
-            root = html.etree.HTML(content)
-            result = dict()
-            for key, value in kwargs.items():
-                result[key] = [''.join(root.xpath(value))]
-            await page.close()
-            self.logger.log(alias, '下载文章 {}'.format(site), (time.time() - start))
-            return result
-        except:
-            self.logger.log(alias, '下载文章{}报错  {}'.format(site, 'traceback.format_exc():\n%s' % traceback.format_exc()))
-            return {}
-
-    def __save(self, url, values):
-        assert values
-        self.logger.log(self.alias, 'save参数 {}'.format(values))
-        try:
-            # 定义一个表
-            matrix = []
-            v_len = set()
-            for key, values in values.items():
-                v_len.add(len(values))
-
-                m = list()
-                m.append(key)
-                for v in values:
-                    m.append(v)
-                matrix.append(m)
-            if len(v_len) != 1:
-                raise Exception('抓取字段的数量不一致')
-            values = np.array(matrix).T
-            self.dao.save(values)
-            self.redup.load(url)
-        except:
-            self.logger.log(self.alias, '保存 {} 报错 {}'.format(url, '\r\ntraceback.format_exc():\n%s' % traceback.format_exc()))
+        #1、加入到去重队列
+        self.redup.load(page.url)
+        #2、取出url
+        if page.template.next:
+            next_urls = page.values[page.template.next]
+            for next_url in next_urls:
+                # 3、添加新的到队列
+                self.scheduler.put(Page(parent=page.url, url=next_url, template=page.template.child))
+        #4、删除头元素
+        self.scheduler.remove_head()
 
     def run(self):
         """
         开始运行
         :return:
         """
+        self.logger.log(self.alias, '开始运行')
+        # 生成种子
+        for url in self.template.urls:
+            self.scheduler.put(Page(parent=None, url=url, template=self.template))
+
+        event_loop = asyncio.get_event_loop()
         try:
-            if self.start_kwargs:
-                loop = asyncio.get_event_loop()
-                values = asyncio.ensure_future(self.__download_list(self.alias, self.start_site, self.start_kwargs))
-                loop.run_until_complete(values)
-                values = values.result()
-
-            if not self.next_kwargs:
-                self.__save(self.start_site, values)
-
-            if self.next_kwargs:
-                for url in values.get('url'):
-                    loop = asyncio.get_event_loop()
-                    values = asyncio.ensure_future(self.__download_article(self.alias, url))
-                    loop.run_until_complete(values)
-                    values = values.result()
-                    if values:
-                        self.__save(url, values)
-            self.__kill()
+            while self.scheduler.len():
+                page = self.scheduler.head()
+                f = asyncio.ensure_future(self.__download(page))
+                event_loop.run_until_complete(f)
+                if f.result() and page.template.fields:
+                    self.__pre_save(page)
+                    if self.__save(page):
+                        self.__after_save(page)
+            self.logger.log(self.alias, '运行结束')
         except:
             self.logger.log(self.alias, '运行报错 {}'.format('traceback.format_exc():\n%s' % traceback.format_exc()))
+        finally:
+            self.logger.log(self.alias, '清理环境')
             self.__kill()
 
     def __kill(self):
+        """
+        清理环境
+        :return:
+        """
+        self.logger.log(self.alias, '关闭浏览器')
         try:
             # win平台
             if platform.system() == 'Windows':
@@ -335,5 +452,7 @@ class Spider:
             self.logger.log(self.alias, '杀死进程报错 {}'.format('traceback.format_exc():\n%s' % traceback.format_exc()))
 
 
-# spider = Spider(dao=WordPressDao(host='hadoop100:84'))
-# spider.list('博客园精华', site="https://www.cnblogs.com/pick/", url="//a[@class='titlelnk']//@href").article(title="//a[@id='cb_post_title_url']//text()", content="//div[@id='cnblogs_post_body']//text()").run()
+# spider = Spider('博客园精华', pipeline=MySQLPipeline())
+# spider.page(urls="https://www.cnblogs.com/pick/", expresses={"link":"//a[@class='titlelnk']//@href"}, next='link', fields={"网址":"link"}, is_list=True)
+# spider.page(expresses={"title":"//a[@id='cb_post_title_url']//text()", "content":"//div[@id='cnblogs_post_body']//text()"}, table='t1', fields={"标题":'title', "正文":"content"}, is_list=False)
+# spider.run()

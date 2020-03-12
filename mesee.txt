@@ -10,7 +10,7 @@ python setup.py sdist bdist_wheel
 #把模块安装到本地，这样你就可以在本地import导入使用这个模块了。
 python setup.py install
 
-#上传到服务器
+#上传到测试服务器
 python -m twine upload --repository-url https://test.pypi.org/legacy/ dist/*
 
 #测试上传是否成功
