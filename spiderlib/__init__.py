@@ -53,6 +53,7 @@ class MemoryRedup():
         return False
 
     def load(self, url):
+        print("新增去重 {}".format(url))
         self.pool.add(url)
 
     def __str__(self):
@@ -75,6 +76,7 @@ class RedisRedup(MemoryRedup):
         return False
 
     def load(self, url, name=NAME):
+        print("新增去重 {}".format(url))
         self.r.sadd(RedisRedup.NAME, url)
 
     def __str__(self):
@@ -223,7 +225,7 @@ class MemoryScheduler:
         :return:
         """
         ele = self.q.pop(0)
-        print("调度器剩余容量"+str(self.len()))
+        print("调度器删除元素{}  剩余容量{}".format(ele, self.len()))
         return ele
 
     def len(self)->int:
@@ -429,8 +431,10 @@ class Spider:
                 break
         if key_pid:
             page.matrix[0].append(key_pid)
-        for vlist in page.matrix[1:]:
-            vlist.append(page.url)
+            for vlist in page.matrix[1:]:
+                vlist.append(page.url)
+        #钩子函数
+        page.template.hooker.before_save(page)
 
     def __save(self, page: Page)->bool:
         """
@@ -446,17 +450,18 @@ class Spider:
             self.logger.log(self.alias, '保存报错 {}'.format('traceback.format_exc():\n%s' % traceback.format_exc()))
             return False
 
-    def __after_save(self, page: Page)->None:
+    def __after_save(self, page: Page, flag:bool)->None:
         """
         保存后，修改调度器信息
         :param node:
         :return:
         """
-        self.logger.log(self.alias, '__after_save(...)参数 {}'.format(page))
-        #1、加入到去重队列
-        self.redup.load(page.url)
+        self.logger.log(self.alias, '__after_save(...)参数 page={} flag={}'.format(page, flag))
+        #1、成功操作后，加入到去重队列
+        if flag:
+            self.redup.load(page.url)
         #2、取出url
-        if page.template.next:
+        if page.template.next and page.template.child:
             next_urls = page.values[page.template.next]
             for next_url in next_urls:
                 # 3、添加新的到队列
@@ -480,14 +485,11 @@ class Spider:
                 page = self.scheduler.head()
                 f = asyncio.ensure_future(self.__download(page))
                 event_loop.run_until_complete(f)
+                normal_flag = True
                 if f.result() and page.template.fields:
                     self.__pre_save(page)
-                    page.template.before_save(page)
-                    if self.__save(page):
-                        self.__after_save(page)
-                else:   #不需要保存的话，需要单独处理
-                    self.redup.load(page.url)
-                    self.scheduler.remove_head()
+                    normal_flag = self.__save(page)
+                self.__after_save(page, normal_flag)
             self.logger.log(self.alias, '运行结束')
         except:
             self.logger.log(self.alias, '运行报错 {}'.format('traceback.format_exc():\n%s' % traceback.format_exc()))
