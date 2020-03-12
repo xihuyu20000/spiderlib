@@ -1,11 +1,7 @@
-import copy
-import queue
-import re
-from functools import reduce
-
 name = 'spiderlib'
 author = '吴超  QQ 377486624'
 
+import re
 import subprocess
 import time
 import traceback
@@ -21,7 +17,7 @@ import base64
 import requests
 
 
-class NoLogger:
+class NoLogger():
     """
     不输出日志
     """
@@ -29,7 +25,7 @@ class NoLogger:
         pass
 
 
-class ConsoleLogger:
+class ConsoleLogger(NoLogger):
     """
     输出日志到控制台
     """
@@ -44,7 +40,7 @@ class ConsoleLogger:
         return 'ConsoleLogger'
 
 
-class MemoryRedup:
+class MemoryRedup():
     """
     内存判断重复
     """
@@ -63,7 +59,7 @@ class MemoryRedup:
         return 'MemoryRedup'
 
 
-class RedisRedup:
+class RedisRedup(MemoryRedup):
     """
     redis判断重复
     """
@@ -98,7 +94,7 @@ class ConsolePipeline:
         return 'ConsolePipeline'
 
 
-class FilePipeline:
+class FilePipeline(ConsolePipeline):
     """
     结果输出到文件
     """
@@ -122,7 +118,7 @@ class FilePipeline:
         return 'FilePipeline'
 
 
-class MySQLPipeline:
+class MySQLPipeline(ConsolePipeline):
     """
     结果输出到MySQL
     """
@@ -163,16 +159,16 @@ class MySQLPipeline:
             self.db.close()
 
 
-class WordPressPipeline:
+class WordPressPipeline(ConsolePipeline):
     """
     结果发布到WordPress
     """
-    def __init__(self, host='localhost', user='root', password='admin'):
+    def __init__(self, host:str='localhost', user:str='root', password:str='admin'):
         self.host = host
         self.user = user
         self.password = password
 
-    def save(self, values, tag=''):
+    def save(self, values, tag: str = '') -> None:
         """
         保存
         :param values:
@@ -205,7 +201,7 @@ class MemoryScheduler:
     def __init__(self, maxsize=0):
         self.q = list()
 
-    def put(self, ele):
+    def put(self, ele)->bool:
         """
         插入到尾部
         :param ele:
@@ -230,7 +226,7 @@ class MemoryScheduler:
         print("调度器剩余容量"+str(self.len()))
         return ele
 
-    def len(self):
+    def len(self)->int:
         return len(self.q)
 
     def __str__(self):
@@ -238,7 +234,7 @@ class MemoryScheduler:
 
 
 class Template:
-    def __init__(self, urls, expresses, next, fields_tag, fields, is_list):
+    def __init__(self, urls, expresses, next, fields_tag, fields, is_list, hooker):
         """
         :param urls:
         :param expresses:
@@ -246,6 +242,7 @@ class Template:
         :param fields_tag: 表名
         :param fields:
         :param is_list: True表示列表页，False表示实体页
+        :param hooker:
         """
         assert urls
         assert isinstance(urls, list)
@@ -256,15 +253,16 @@ class Template:
         self.fields_tag = fields_tag
         self.fields = fields
         self.is_list = is_list
+        self.hooker = hooker
         self.child = None
 
     def __str__(self):
-        return '(Template:  urls={}  expresses={}  next={}  fields_tag={}  fields={} is_list={} child={})'.format(self.urls, self.expresses, self.next, self.fields_tag, self.fields, self.is_list, self.child)
+        return '(Template:  urls={}  expresses={}  next={}  fields_tag={}  fields={} is_list={} hooker={} child={})'.format(self.urls, self.expresses, self.next, self.fields_tag, self.fields, self.is_list, self.hooker, self.child)
     __repr__ = __str__
 
 
 class Page:
-    def __init__(self, parent, url, template):
+    def __init__(self, parent: str, url: str, template: Template):
         """
         初始化方法，很重要。
         parent是上级页面的url
@@ -282,6 +280,35 @@ class Page:
     __repr__ = __str__
 
 
+class Hooker:
+    """
+    专门用于hook的类
+    """
+    def before_download(self, page: Page)->None:
+        """
+        下载页面之前
+        :param page:
+        :return:
+        """
+        pass
+
+    def after_download(self, page: Page)->None:
+        """
+        下载页面之后
+        :param page:
+        :return:
+        """
+        pass
+
+    def before_save(self, page: Page)->None:
+        """
+        保存数据之前
+        :param page:
+        :return:
+        """
+        pass
+
+
 class Spider:
     urlregex = re.compile(
         r'^(?:http|ftp)s?://'  # http:// or https://
@@ -291,7 +318,7 @@ class Spider:
         r'(?::\d+)?'  # optional port
         r'(?:/?|[/?]\S+)$', re.IGNORECASE)
 
-    def __init__(self, alias, redup=MemoryRedup(), scheduler=MemoryScheduler(), pipeline=ConsolePipeline(), logger=ConsoleLogger()):
+    def __init__(self, alias: str, redup:MemoryRedup=MemoryRedup(), scheduler:MemoryScheduler=MemoryScheduler(), pipeline:ConsolePipeline=ConsolePipeline(), logger:ConsoleLogger=ConsoleLogger()):
         """
         实例化爬虫类，各个参数很重要，需要认真填写
         :param alias: 网站名称，方便记忆
@@ -310,35 +337,35 @@ class Spider:
         self.browser = asyncio.get_event_loop().run_until_complete(launch({'headless': True, 'args': ['--no-sandbox', '--disable-setuid-sandbox'], 'dumpio': True, 'slowMo': 1}))
         self.template = None
 
-    def page(self, urls='', expresses={}, fields_tag='', fields={}, next='', is_list=False):
+    def page(self, urls: str = '', expresses: dict = {}, fields_tag: str = '', fields: dict = {}, next: str = '', is_list: bool = False, hooker: Hooker = Hooker()):
         """
         抓取信息配置
         :param urls: 被抓取的url列表，可以是list，也可以是str
         :param expresses: dict，抓取的字段和xpath
         :param fields_tag: str，表名或者文件名。不同内容对应到不同的输出
-        :param fields: dict，保存时指定的名称，抓取的字段名与保存的字段名之间的映射关系。如果不填写，那么就不会保存数据
+        :param fields: dict，保存时指定的名称，抓取的字段名与保存的字段名之间的映射关系。如果不填写，那么就不会保存数据。抓取的时候，有个字段是pid，表示前一页面的url
         :param next: str，传递给下一级抓取时，指定的字段名，这个字段名一定出现在expresses的key中。如果url需要补全，在这里可以实现
         :param is_list: bool，是否是文章或者新闻。如果是列表，写True；如果是具体的数据，写False
+        :param hooker: Hooker 用于hook
         :return: self
         """
-        self.logger.log(self.alias, 'page参数 urls={} expresses={} fields_tag={} fields={} next={} is_list={}'.format(urls, expresses, fields_tag, fields, next, is_list))
+        self.logger.log(self.alias, 'page参数 urls={} expresses={} fields_tag={} fields={} next={} is_list={} hooker={}'.format(urls, expresses, fields_tag, fields, next, is_list, hooker))
         urls = [urls] if isinstance(urls, str) else urls
-        t = Template(urls, expresses, next, fields_tag, fields, is_list)
+        t = Template(urls, expresses, next, fields_tag, fields, is_list, hooker)
         if self.template:
             self.template.child = t
         else:
             self.template = t
         return self
 
-    async def __download(self, page):
+    async def __download(self, page: Page)->bool:
         """
         下载页面
         :param page:
         :return: 重复url，返回False；否则，返回True
         """
         self.logger.log(self.alias, '__download参数 {}'.format(page))
-        assert page
-        assert isinstance(page, Page)
+        self.page().template.hooker.before_download(self.page)
         url = page.url
         if self.redup.loaded(url):
             return False
@@ -347,7 +374,7 @@ class Spider:
             start = time.time()
             browser_page = await self.browser.newPage()
             try:
-                await browser_page.goto(url)
+                await browser_page.goto(url, options={'timeout':10000})
             except:
                 self.logger.log(self.alias, '下载列表 {} 超时'.format(url), (time.time() - start))
             content = await  browser_page.content()
@@ -358,19 +385,30 @@ class Spider:
                     content = ["".join(content)]
                 page.values[key] = content
             await browser_page.close()
-            self.logger.log(self.alias, '下载列表 {} 共计{}条 {}'.format(url, len(list(page.values.get(list(page.values.keys())[0]))), page.values),
-                            (time.time() - start))
+            self.page().template.hooker.after_download(self.page)
+            self.logger.log(self.alias, '下载列表 {} 共计{}条 '.format(url, len(list(page.values.get(list(page.values.keys())[0])))),(time.time() - start))
         except:
             self.logger.log(self.alias,
                             '下载列表{}报错  {}'.format(url, 'traceback.format_exc():\n%s' % traceback.format_exc()))
         return True
 
-    def __pre_save(self, page):
+    def __pre_save(self, page: Page)->None:
         self.logger.log(self.alias, '__pre_save参数 {}'.format(page))
+
+        #使用fields内容
+        items = {}
+        if page.template.fields:
+            for k,v in page.template.fields.items():
+                # k是保存用的名字，v是抓取时用的名字
+                if v in page.values.keys(): #pid不是抓取字段，这里必须判断
+                    items[k] = page.values[v]
+        else:
+            items = page.values
+
         # 定义一个二维数组
         matrix = []
         v_len = set()
-        for key, values in page.values.items():
+        for key, values in items.items():
             v_len.add(len(values))
             m = []
             m.append(key)
@@ -379,18 +417,31 @@ class Spider:
             matrix.append(m)
         if page.template.is_list and len(v_len) != 1:
             raise Exception(self.alias +' 抓取字段的数量不一致 ' + str(page.values))
-        page.values = np.array(matrix).T
 
-    def __save(self, page):
+        # 后面会根据key取值，所以Page对象增加一个新的属性
+        page.matrix = np.array(matrix).T.tolist()
+
+        # 判断是否需要pid字段
+        key_pid = None
+        for k,v in page.template.fields.items():
+            if "pid" == v:
+                key_pid = k
+                break
+        if key_pid:
+            page.matrix[0].append(key_pid)
+        for vlist in page.matrix[1:]:
+            vlist.append(page.url)
+
+    def __save(self, page: Page)->bool:
         self.logger.log(self.alias, '__save参数 {}'.format(page))
         try:
-            self.pipeline.save(page.values, page.fields_tag)
+            self.pipeline.save(page.matrix, page.template.fields_tag)
             return True
         except:
             self.logger.log(self.alias, '保存报错 {}'.format('traceback.format_exc():\n%s' % traceback.format_exc()))
             return False
 
-    def __after_save(self, page):
+    def __after_save(self, page: Page)->None:
         """
         保存后，修改调度器信息
         :param node:
@@ -425,6 +476,7 @@ class Spider:
                 event_loop.run_until_complete(f)
                 if f.result() and page.template.fields:
                     self.__pre_save(page)
+                    page.template.before_save(page)
                     if self.__save(page):
                         self.__after_save(page)
             self.logger.log(self.alias, '运行结束')
