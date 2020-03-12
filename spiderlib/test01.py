@@ -40,5 +40,5 @@ def test_MySQLPipeline1():
 
 
 if __name__ == '__main__':
-    test_FilePipeline2()
-    # test_MySQLPipeline1()
+    # test_FilePipeline2()
+    test_MySQLPipeline1()

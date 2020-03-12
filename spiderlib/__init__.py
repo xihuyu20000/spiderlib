@@ -337,7 +337,7 @@ class Spider:
         self.browser = asyncio.get_event_loop().run_until_complete(launch({'headless': True, 'args': ['--no-sandbox', '--disable-setuid-sandbox'], 'dumpio': True, 'slowMo': 1}))
         self.template = None
 
-    def page(self, urls: str = '', expresses: dict = {}, fields_tag: str = '', fields: dict = {}, next: str = '', is_list: bool = False, hooker: Hooker = Hooker()):
+    def page(self, urls = '', expresses: dict = {}, fields_tag: str = '', fields: dict = {}, next: str = '', is_list: bool = False, hooker: Hooker = Hooker()):
         """
         抓取信息配置
         :param urls: 被抓取的url列表，可以是list，也可以是str
@@ -349,7 +349,7 @@ class Spider:
         :param hooker: Hooker 用于hook
         :return: self
         """
-        self.logger.log(self.alias, 'page参数 urls={} expresses={} fields_tag={} fields={} next={} is_list={} hooker={}'.format(urls, expresses, fields_tag, fields, next, is_list, hooker))
+        self.logger.log(self.alias, 'page(...)参数 urls={} expresses={} fields_tag={} fields={} next={} is_list={} hooker={}'.format(urls, expresses, fields_tag, fields, next, is_list, hooker))
         urls = [urls] if isinstance(urls, str) else urls
         t = Template(urls, expresses, next, fields_tag, fields, is_list, hooker)
         if self.template:
@@ -364,8 +364,8 @@ class Spider:
         :param page:
         :return: 重复url，返回False；否则，返回True
         """
-        self.logger.log(self.alias, '__download参数 {}'.format(page))
-        self.page().template.hooker.before_download(self.page)
+        self.logger.log(self.alias, '__download(...)参数 {}'.format(page))
+        page.template.hooker.before_download(page)
         url = page.url
         if self.redup.loaded(url):
             return False
@@ -385,7 +385,7 @@ class Spider:
                     content = ["".join(content)]
                 page.values[key] = content
             await browser_page.close()
-            self.page().template.hooker.after_download(self.page)
+            page.template.hooker.after_download(page)
             self.logger.log(self.alias, '下载列表 {} 共计{}条 '.format(url, len(list(page.values.get(list(page.values.keys())[0])))),(time.time() - start))
         except:
             self.logger.log(self.alias,
@@ -393,7 +393,7 @@ class Spider:
         return True
 
     def __pre_save(self, page: Page)->None:
-        self.logger.log(self.alias, '__pre_save参数 {}'.format(page))
+        self.logger.log(self.alias, '__pre_save(...)参数 {}'.format(page))
 
         #使用fields内容
         items = {}
@@ -433,7 +433,12 @@ class Spider:
             vlist.append(page.url)
 
     def __save(self, page: Page)->bool:
-        self.logger.log(self.alias, '__save参数 {}'.format(page))
+        """
+        保存
+        :param page:
+        :return:
+        """
+        self.logger.log(self.alias, '__save(...)参数 {}'.format(page))
         try:
             self.pipeline.save(page.matrix, page.template.fields_tag)
             return True
@@ -447,6 +452,7 @@ class Spider:
         :param node:
         :return:
         """
+        self.logger.log(self.alias, '__after_save(...)参数 {}'.format(page))
         #1、加入到去重队列
         self.redup.load(page.url)
         #2、取出url
@@ -463,7 +469,7 @@ class Spider:
         开始运行
         :return:
         """
-        self.logger.log(self.alias, '开始运行')
+        self.logger.log(self.alias, 'run(...)开始运行')
         # 生成种子
         for url in self.template.urls:
             self.scheduler.put(Page(parent=None, url=url, template=self.template))
@@ -479,6 +485,9 @@ class Spider:
                     page.template.before_save(page)
                     if self.__save(page):
                         self.__after_save(page)
+                else:   #不需要保存的话，需要单独处理
+                    self.redup.load(page.url)
+                    self.scheduler.remove_head()
             self.logger.log(self.alias, '运行结束')
         except:
             self.logger.log(self.alias, '运行报错 {}'.format('traceback.format_exc():\n%s' % traceback.format_exc()))
