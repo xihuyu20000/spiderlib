@@ -163,7 +163,7 @@ class MySQLPipeline(ConsolePipeline):
 
 class WordPressPipeline(ConsolePipeline):
     """
-    结果发布到WordPress
+    结果发布到WordPress。输入的字段必须是title和content
     """
     def __init__(self, host:str='localhost', user:str='root', password:str='admin'):
         self.host = host
@@ -225,7 +225,7 @@ class MemoryScheduler:
         :return:
         """
         ele = self.q.pop(0)
-        print("调度器删除元素{}  剩余容量{}".format(ele, self.len()))
+        print("调度器  剩余容量{}  删除元素{}".format(self.len(), ele))
         return ele
 
     def len(self)->int:
@@ -320,7 +320,7 @@ class Spider:
         r'(?::\d+)?'  # optional port
         r'(?:/?|[/?]\S+)$', re.IGNORECASE)
 
-    def __init__(self, alias: str, redup:MemoryRedup=MemoryRedup(), scheduler:MemoryScheduler=MemoryScheduler(), pipeline:ConsolePipeline=ConsolePipeline(), logger:ConsoleLogger=ConsoleLogger()):
+    def __init__(self, alias: str, redup: MemoryRedup=MemoryRedup(), scheduler: MemoryScheduler=MemoryScheduler(), pipeline: ConsolePipeline=ConsolePipeline(), logger: ConsoleLogger=ConsoleLogger()):
         """
         实例化爬虫类，各个参数很重要，需要认真填写
         :param alias: 网站名称，方便记忆
@@ -374,6 +374,7 @@ class Spider:
         try:
             assert re.match(Spider.urlregex, url)
             start = time.time()
+
             browser_page = await self.browser.newPage()
             try:
                 await browser_page.goto(url, options={'timeout':10000})
@@ -387,6 +388,7 @@ class Spider:
                     content = ["".join(content)]
                 page.values[key] = content
             await browser_page.close()
+
             page.template.hooker.after_download(page)
             self.logger.log(self.alias, '下载列表 {} 共计{}条 '.format(url, len(list(page.values.get(list(page.values.keys())[0])))),(time.time() - start))
         except:

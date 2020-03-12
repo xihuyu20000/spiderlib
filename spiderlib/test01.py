@@ -39,6 +39,19 @@ def test_MySQLPipeline1():
     spider.run()
 
 
+def test_WordPressPipeline1():
+    """
+    结果写入到
+    :return:
+    """
+    spider = Spider('博客园精华', pipeline=WordPressPipeline(host='192.168.1.88:84'))
+    spider.page(urls="https://www.cnblogs.com/pick/", expresses={"link":"//a[@class='titlelnk']//@href"}, next='link', is_list=True)
+    spider.page(expresses={"title":"//a[@id='cb_post_title_url']//text()", "content":"//div[@id='cnblogs_post_body']//text()"}, fields={"title":'title', "content":"content"}, is_list=False)
+    spider.run()
+
+
 if __name__ == '__main__':
     # test_FilePipeline2()
-    test_MySQLPipeline1()
+    # test_MySQLPipeline1()
+
+    test_WordPressPipeline1()
