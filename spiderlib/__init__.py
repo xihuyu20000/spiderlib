@@ -100,8 +100,15 @@ class FilePipeline(ConsolePipeline):
     """
     结果输出到文件
     """
-    def __init__(self, path="data.txt"):
+    def __init__(self, path="data.txt", sep="\t", linesep="\r\n"):
+        """
+        保存到文件
+        :param path: 文件路径
+        :param sep:  列之间的分隔符
+        """
         self.path = path
+        self.sep = sep
+        self.linesep = linesep
 
     def save(self, values, file_path):
         """
@@ -112,8 +119,8 @@ class FilePipeline(ConsolePipeline):
         path = file_path if file_path else self.path
         with open(path, 'w', encoding='utf8') as f:
             for line in values:
-                f.write('\t'.join(line))
-                f.write(os.linesep)
+                f.write(self.sep.join(line))
+                f.write(self.linesep)
                 f.flush()
 
     def __str__(self):
@@ -512,9 +519,8 @@ class Spider:
             # linux平台
             if platform.system() == 'Linux':
                 os.system("ps -ef |grep chrome |awk '{print $2}'|xargs kill -9")
-                self.browser.process.wait()
         except:
-            self.logger.log(self.alias, '杀死进程报错 {}'.format('traceback.format_exc():\n%s' % traceback.format_exc()))
+            pass
 
 
 # spider = Spider('博客园精华', pipeline=MySQLPipeline())

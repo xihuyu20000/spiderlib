@@ -7,5 +7,5 @@ websockets==6.0
 requests==2.23.0
 # Scrapy==2.0.0
 # scrapy-puppeteer==0.0.1b0
-# twine==3.1.1
-# wheel==0.34.2
+twine==3.1.1
+wheel==0.34.2
