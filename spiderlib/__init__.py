@@ -432,7 +432,7 @@ class Spider:
         if key_pid:
             page.matrix[0].append(key_pid)
             for vlist in page.matrix[1:]:
-                vlist.append(page.url)
+                vlist.append(page.parent)
         #钩子函数
         page.template.hooker.before_save(page)
 

@@ -35,7 +35,7 @@ def test_MySQLPipeline1():
     """
     spider = Spider('博客园精华', pipeline=MySQLPipeline())
     spider.page(urls="https://www.cnblogs.com/pick/", expresses={"link":"//a[@class='titlelnk']//@href"}, next='link', is_list=True)
-    spider.page(expresses={"title":"//a[@id='cb_post_title_url']//text()", "content":"//div[@id='cnblogs_post_body']//text()"}, fields={"title":'title', "text":"content"}, is_list=False)
+    spider.page(expresses={"title":"//a[@id='cb_post_title_url']//text()", "content":"//div[@id='cnblogs_post_body']//text()"}, fields={"title":'title', "text":"content", "url":"pid"}, is_list=False)
     spider.run()
 
 
