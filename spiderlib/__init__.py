@@ -316,6 +316,9 @@ class Downloader:
     async def download(self, spider, page: Page) -> bool:
         return True
 
+    async def click(self, spider, page: Page) -> bool:
+        return True
+
     def __str__(self):
         return 'Downloader'
 
@@ -343,12 +346,13 @@ class SimpleDownloader(Downloader):
             response = ''
             try:
                 if method == 'get':
-                    response = requests.get(page.url, params=params, kwargs=kwargs, timeout=5)
+                    response = requests.get(page.url, params=params, **kwargs)
                 if method == 'post':
-                    response = requests.post(page.url, data=data, json=json, kwargs=kwargs, timeout=5)
+                    response = requests.post(page.url, data=data, json=json, **kwargs)
             except:
                 spider.logger.log(spider.alias, '下载列表 {} 超时'.format(page.url), (time.time() - start))
             content = response.content if response else ''
+            print(content)
             root_element = html.etree.HTML(content)
             for key, value in page.template.expresses.items():
                 value = str(value)
@@ -370,6 +374,9 @@ class SimpleDownloader(Downloader):
         except:
             spider.logger.log(spider.alias,
                             '下载列表{}报错  {}'.format(page.url, 'traceback.format_exc():\n%s' % traceback.format_exc()))
+        return True
+
+    async def click(self, spider, page: Page) -> bool:
         return True
 
     def __str__(self):
@@ -411,13 +418,20 @@ class RenderDownloader(Downloader):
             page.template.hooker.after_download(page)
             spider.logger.log(spider.alias, '下载列表 {} 共计{}条 '.format(page.url, rows),(time.time() - start))
         except:
-            spider.logger.log(spider.alias,
-                            '下载列表{}报错  {}'.format(page.url, 'traceback.format_exc():\n%s' % traceback.format_exc()))
+            spider.logger.log(spider.alias, '下载列表{}报错  {}'.format(page.url, 'traceback.format_exc():\n%s' % traceback.format_exc()))
+        return True
+
+    async def click(self, spider, page: Page) -> bool:
         return True
 
     def __str__(self):
         return 'PyppeteerDownloader'
 
+
+class LoopConfig:
+    def __init__(self, express: str = '', times: int = 0):
+        self.express = express
+        self.times = times
 
 class Hooker:
     """
@@ -457,7 +471,7 @@ class Spider:
         r'(?::\d+)?'  # optional port
         r'(?:/?|[/?]\S+)$', re.IGNORECASE)
 
-    def __init__(self, alias: str, downloader: Downloader = SimpleDownloader(), redup: MemoryRedup = MemoryRedup(), scheduler: MemoryScheduler = MemoryScheduler(), pipeline: ConsolePipeline = ConsolePipeline(), logger: ConsoleLogger = ConsoleLogger()):
+    def __init__(self, alias: str, downloader: Downloader = SimpleDownloader(), redup: MemoryRedup = MemoryRedup(), scheduler: MemoryScheduler = MemoryScheduler(), pipeline: ConsolePipeline = ConsolePipeline(), logger: ConsoleLogger = ConsoleLogger(), loop_config: LoopConfig = LoopConfig()):
         """
         实例化爬虫类，各个参数很重要，需要认真填写
         :param alias: 网站名称，方便记忆
@@ -466,16 +480,19 @@ class Spider:
         :param scheduler: 调度器类，必须创建对象，可选类有MemoryScheduler
         :param pipeline: 持久化的类，必须创建对象，可选类有ConsoleDao、FilePipeline、MySQLPipeline、WordPressPipeline
         :param logger: 日志类，必须创建对象，可选类有NoLogger、ConsoleLogger
+        :param loop_config: 点击配置类，必须创建对象，可选类有LoopConfig
         """
         self.pid = os.getpid()
-        logger.log(tag='爬虫实例 进程={}'.format(self.pid), info='downloader={} redup={} scheduler={} pipeline={} logger={}'.format(downloader, redup, scheduler, pipeline, logger))
+        logger.log(tag='爬虫实例 进程={}'.format(self.pid), info='downloader={} redup={} scheduler={} pipeline={} logger={} click_config={}'.format(downloader, redup, scheduler, pipeline, logger, loop_config))
         self.alias = alias
         self.downloader = downloader
         self.redup = redup
         self.scheduler = scheduler
         self.pipeline = pipeline
         self.logger = logger
+        self.loop_config = loop_config
         self.browser = asyncio.get_event_loop().run_until_complete(launch({'headless': True, 'args': ['--no-sandbox', '--disable-setuid-sandbox'], 'dumpio': True, 'slowMo': 1}))
+        self.event_loop = asyncio.get_event_loop()
         self.template = None    #保存本页面对应的模板
         self.save_count = 0 #保存成功的数量
 
@@ -516,6 +533,11 @@ class Spider:
             return False
         assert re.match(Spider.url_regex, url)
         return await self.downloader.download(self, page)
+
+
+    def __loop_page(self):
+        print('正在循环中。。。。。。。。。。。。。。。。。')
+
 
     def __pre_save(self, page: Page)->None:
         self.logger.log(self.alias, '__pre_save(...)参数 {}'.format(page))
@@ -587,7 +609,8 @@ class Spider:
     def __after_save(self, page: Page, flag:bool)->None:
         """
         保存后，修改调度器信息
-        :param node:
+        :param page:
+        :param flag:
         :return:
         """
         self.logger.log(self.alias, '__after_save(...)参数 page={} flag={}'.format(page, flag))
@@ -611,27 +634,34 @@ class Spider:
         :return:
         """
         self.logger.log(self.alias, 'run(...)开始运行')
-        # 生成种子
-        for url in self.template.urls:
-            self.scheduler.put(Page(parent=None, url=url, template=self.template))
-
-        event_loop = asyncio.get_event_loop()
         try:
-            while self.scheduler.len():
-                page = self.scheduler.head()
-                f = asyncio.ensure_future(self.__download(page))
-                event_loop.run_until_complete(f)
-                normal_flag = True
-                if f.result() and page.template.fields:
-                    self.__pre_save(page)
-                    normal_flag = self.__save(page)
-                self.__after_save(page, normal_flag)
+            # 生成种子
+            for url in self.template.urls:
+                self.scheduler.put(Page(parent=None, url=url, template=self.template))
+
+            self.__run()
+            # for times in self.loop_config.times:
+            #     self.__loop_page()
+            #     self.__run()
+
             self.logger.log(self.alias, '运行结束')
         except:
             self.logger.log(self.alias, '运行报错 {}'.format('traceback.format_exc():\n%s' % traceback.format_exc()))
         finally:
             self.logger.log(self.alias, '清理环境')
             self.__kill()
+
+    def __run(self):
+
+        while self.scheduler.len():
+            page = self.scheduler.head()
+            f = asyncio.ensure_future(self.__download(page))
+            self.event_loop.run_until_complete(f)
+            normal_flag = True
+            if f.result() and page.template.fields:
+                self.__pre_save(page)
+                normal_flag = self.__save(page)
+            self.__after_save(page, normal_flag)
 
     def __kill(self):
         """
