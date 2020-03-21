@@ -308,6 +308,38 @@ class Page:
     __repr__ = __str__
 
 
+class Parser:
+    def parse(self, page:Page, content:str):
+        pass
+
+
+class HtmlParser(Parser):
+    def parse(self, page, content)->None:
+        """
+        解析内容
+        :param page:
+        :param content: HTML页面内容
+        :return:
+        """
+        root_element = html.etree.HTML(content)
+
+        ret = {}
+        for key, value in page.template.expresses.items():
+            value = str(value)
+            if value.startswith("/"):
+                content = root_element.xpath(value)
+                if not page.template.is_list:
+                    content = ["".join([item.strip() for item in content])]
+                ret[key] = content
+        # 抓取的记录条数
+        rows = len(list(ret.get(list(ret.keys())[0])))
+        # 表达式，不是/开头；那就是常量
+        for key, value in page.template.expresses.items():
+            value = str(value)
+            if not value.startswith("/"):
+                ret[key] = [str(value) for i in range(rows)]
+        page.values = ret
+
 class Downloader:
     """
     下载器
@@ -352,24 +384,9 @@ class SimpleDownloader(Downloader):
             except:
                 spider.logger.log(spider.alias, '下载列表 {} 超时'.format(page.url), (time.time() - start))
             content = response.content if response else ''
-            print(content)
-            root_element = html.etree.HTML(content)
-            for key, value in page.template.expresses.items():
-                value = str(value)
-                if value.startswith("/"):
-                    content = root_element.xpath(value) if root_element else ''
-                    if not page.template.is_list:
-                        content = ["".join(content)]
-                    page.values[key] = content
-            #抓取的记录条数
-            rows = len(list(page.values.get(list(page.values.keys())[0])))
-            #表达式，不是/开头；那就是常量
-            for key, value in page.template.expresses.items():
-                value = str(value)
-                if not value.startswith("/"):
-                    page.values[key] = [str(value) for i in range(rows)]
-
+            spider.parser.parse(page, content)
             page.template.hooker.after_download(page)
+            rows = len(list(page.values.get(list(page.values.keys())[0])))
             spider.logger.log(spider.alias, '下载列表 {} 共计{}条 '.format(page.url, rows),(time.time() - start))
         except:
             spider.logger.log(spider.alias,
@@ -398,24 +415,10 @@ class RenderDownloader(Downloader):
             except:
                 spider.logger.log(spider.alias, '下载列表 {} 超时'.format(page.url), (time.time() - start))
             content = await  browser_page.content()
-            root_element = html.etree.HTML(content)
-            for key, value in page.template.expresses.items():
-                value = str(value)
-                if value.startswith("/"):
-                    content = root_element.xpath(value)
-                    if not page.template.is_list:
-                        content = ["".join([item.strip() for item in content])]
-                    page.values[key] = content
-            #抓取的记录条数
-            rows = len(list(page.values.get(list(page.values.keys())[0])))
-            #表达式，不是/开头；那就是常量
-            for key, value in page.template.expresses.items():
-                value = str(value)
-                if not value.startswith("/"):
-                    page.values[key] = [str(value) for i in range(rows)]
+            spider.parser.parse(page, content)
             await browser_page.close()
-
             page.template.hooker.after_download(page)
+            rows = len(list(page.values.get(list(page.values.keys())[0])))
             spider.logger.log(spider.alias, '下载列表 {} 共计{}条 '.format(page.url, rows),(time.time() - start))
         except:
             spider.logger.log(spider.alias, '下载列表{}报错  {}'.format(page.url, 'traceback.format_exc():\n%s' % traceback.format_exc()))
@@ -427,6 +430,9 @@ class RenderDownloader(Downloader):
     def __str__(self):
         return 'PyppeteerDownloader'
 
+
+class ItemLoader:
+    pass
 
 class LoopConfig:
     def __init__(self, express: str = '', times: int = 0):
@@ -471,13 +477,14 @@ class Spider:
         r'(?::\d+)?'  # optional port
         r'(?:/?|[/?]\S+)$', re.IGNORECASE)
 
-    def __init__(self, alias: str, downloader: Downloader = SimpleDownloader(), redup: MemoryRedup = MemoryRedup(), scheduler: MemoryScheduler = MemoryScheduler(), pipeline: ConsolePipeline = ConsolePipeline(), logger: ConsoleLogger = ConsoleLogger(), loop_config: LoopConfig = LoopConfig()):
+    def __init__(self, alias: str, downloader: Downloader = SimpleDownloader(), redup: MemoryRedup = MemoryRedup(), scheduler: MemoryScheduler = MemoryScheduler(), parser: Parser = HtmlParser(), pipeline: ConsolePipeline = ConsolePipeline(), logger: ConsoleLogger = ConsoleLogger(), loop_config: LoopConfig = LoopConfig()):
         """
         实例化爬虫类，各个参数很重要，需要认真填写
         :param alias: 网站名称，方便记忆
         :param pattern: 运行模式，可选值有1、2。值1表示使用简洁模式，值2表示使用渲染模式
         :param redup: 判断重复的类，必须创建对象，可选类有MemoryRedup、RedisRedup
         :param scheduler: 调度器类，必须创建对象，可选类有MemoryScheduler
+        :param parser: 条目解析器
         :param pipeline: 持久化的类，必须创建对象，可选类有ConsoleDao、FilePipeline、MySQLPipeline、WordPressPipeline
         :param logger: 日志类，必须创建对象，可选类有NoLogger、ConsoleLogger
         :param loop_config: 点击配置类，必须创建对象，可选类有LoopConfig
@@ -488,6 +495,7 @@ class Spider:
         self.downloader = downloader
         self.redup = redup
         self.scheduler = scheduler
+        self.parser = parser
         self.pipeline = pipeline
         self.logger = logger
         self.loop_config = loop_config
@@ -496,7 +504,7 @@ class Spider:
         self.template = None    #保存本页面对应的模板
         self.save_count = 0 #保存成功的数量
 
-    def page(self, urls:Union[list, str] = '', is_list: bool = False, expresses: dict = {}, fields_tag: str = '', fields: dict = {}, next: str = '', hooker: Hooker = Hooker()):
+    def page(self, urls: Union[list, str] = '', is_list: bool = False, expresses: dict = {}, fields_tag: str = '', fields: dict = {}, next: str = '', hooker: Hooker = Hooker()):
         """
         抓取信息配置
         :param urls: 被抓取的url列表，可以是list，也可以是str
