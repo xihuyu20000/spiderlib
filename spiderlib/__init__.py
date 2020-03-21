@@ -301,6 +301,7 @@ class Page:
         self.parent = parent
         self.url = url
         self.template = template
+        self.whole_html = ''
         self.values: dict = {}    #抓取页面后的值，保存到这里
 
     def __str__(self):
@@ -309,19 +310,18 @@ class Page:
 
 
 class Parser:
-    def parse(self, page:Page, content:str):
+    def parse(self, page:Page):
         pass
 
 
 class HtmlParser(Parser):
-    def parse(self, page, content)->None:
+    def parse(self, page)->None:
         """
         解析内容
         :param page:
-        :param content: HTML页面内容
         :return:
         """
-        root_element = html.etree.HTML(content)
+        root_element = html.etree.HTML(page.whole_html)
 
         ret = {}
         for key, value in page.template.expresses.items():
@@ -384,7 +384,8 @@ class SimpleDownloader(Downloader):
             except:
                 spider.logger.log(spider.alias, '下载列表 {} 超时'.format(page.url), (time.time() - start))
             content = response.content if response else ''
-            spider.parser.parse(page, content)
+            page.whole_html = content
+            spider.parser.parse(page)
             page.template.hooker.after_download(page)
             rows = len(list(page.values.get(list(page.values.keys())[0])))
             spider.logger.log(spider.alias, '下载列表 {} 共计{}条 '.format(page.url, rows),(time.time() - start))
@@ -415,7 +416,8 @@ class RenderDownloader(Downloader):
             except:
                 spider.logger.log(spider.alias, '下载列表 {} 超时'.format(page.url), (time.time() - start))
             content = await  browser_page.content()
-            spider.parser.parse(page, content)
+            page.whole_html = content
+            spider.parser.parse(page)
             await browser_page.close()
             page.template.hooker.after_download(page)
             rows = len(list(page.values.get(list(page.values.keys())[0])))
