@@ -1,4 +1,7 @@
+import json
 from typing import Union, Optional
+
+import feedparser
 
 name = 'spiderlib'
 author = '吴超  QQ 377486624'
@@ -157,6 +160,9 @@ class MySQLPipeline(ConsolePipeline):
         self.c = self.db.cursor()
         self.table_name = table
 
+    def save_one(self, fields, values, table_name: str = ''):
+        self.save([fields, values], table_name=table_name)
+
     def save(self, values, table_name: str = '')->None:
         """
         保存数据。
@@ -223,6 +229,51 @@ class WordPressPipeline(ConsolePipeline):
     def __str__(self):
         return 'WordPressPipeline'
 
+
+
+class DrupalPipeline:
+    """
+    结果发布到Drupal8中。
+    需要在wp中使用basic authentication
+    """
+    def __init__(self, host:str='localhost', user:str='root', password:str='admin'):
+        self.host = host
+        self.user = user
+        self.password = password
+
+    def save_one(self, title, content):
+        return self.save([[title, content]])[0]
+
+    def save(self, values)->list:
+        """
+        发布文章
+        :param values:是list嵌套list，里面list的第1个值是标题，第2个值是内容
+        :return:
+        """
+        headers = {'Accept': 'application/vnd.api+json', 'Content-Type': 'application/vnd.api+json', }
+        result = []
+        for item in values:
+            title = item[0]
+            content = item[1]
+            data = {
+                "data": {
+                    "type": "node--article",
+                    "attributes": {
+                        "title": title,
+                        "body": {
+                            "value": content,
+                            "format": "plain_text"
+                        }
+                    }
+                }
+            }
+            resp = requests.post("http://{}/jsonapi/node/article".format(self.host), auth=(self.user, self.password), headers=headers,
+                                 data=json.dumps(data))
+            result.append(resp)
+        return result
+
+    def __str__(self):
+        return 'DrupalPipeline'
 
 class MemoryScheduler:
     """
@@ -367,6 +418,15 @@ class HtmlParser(Parser):
             if not value.startswith("/"):
                 ret[key] = [str(value) for i in range(rows)]
         page.values = ret
+
+
+class RssParser:
+    """
+    解析rss
+    """
+    def parse(self, url)->list:
+        feed = feedparser.parse(url)
+        return feed.get("entries")
 
 
 class Downloader:

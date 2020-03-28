@@ -1,24 +1,24 @@
-import json
-
 import requests
+from lxml import html
+from spiderlib import DrupalPipeline, RedisRedup
 
-#下载文章
-# resp = requests.get("http://192.168.1.90:86/jsonapi/node/article")
+resp = requests.get("http://www.ala.org/news/press-releases")
+if resp.status_code==200:
+  links = html.etree.HTML(resp.text).xpath("//span[@class='field-content']//@href")
+  links = ["http://www.ala.org"+x for x in links]
 
-#发布文章
-headers = {'Accept': 'application/vnd.api+json','Content-Type': 'application/vnd.api+json',}
-data = {
-  "data": {
-    "type": "node--article",
-    "attributes": {
-      "title": "My custom title",
-      "body": {
-        "value": "Custom value",
-        "format": "plain_text"
-      }
-    }
-  }
-}
-resp = requests.post("http://192.168.1.90:86/jsonapi/node/article", auth=('root','admin'), headers=headers, data=json.dumps(data))
-print(resp)
-print(resp.text)
+  redis = RedisRedup()
+  d8 = DrupalPipeline(host="192.250.197.186:8887", user="developer", password="webadmin-password-123")
+  for link in links:
+    if redis.isRedup(link):
+      continue
+    resp = requests.get(link)
+    if resp.status_code==200:
+      root = html.etree.HTML(resp.text)
+      title = root.xpath("//h1[@class='page-header']//text()")
+      title = "".join(title)
+      content = root.xpath("//div[@class='field-items']//text()")
+      content = "\r\n".join(content)
+      content = "来源地址 "+link+"\r\n"+content
+      d8.save_one(title, content)
+      redis.add(link)

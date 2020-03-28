@@ -86,4 +86,4 @@ def test_aaa():
     # test_MySQLPipeline1()
     # test_WordPressPipeline1()
 
-    # test_aaa()
+    test_aaa()
