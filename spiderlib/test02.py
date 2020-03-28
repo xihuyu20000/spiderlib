@@ -1,9 +1,8 @@
 from spiderlib import *
 
-
 def test01():
-    spider = Spider("美国国防部")
-    spider.list(urls="https://www.defense.gov/Newsroom/", expresses={"title":"//a[@class='title']//text()", "link":"//a[@class='title']//@href"}, fields={"标题":"title", "链接":"link"}, click_express=".more-row", click_times=0)
+    spider = Spider("美国国防部", pipeline=MySQLPipeline())
+    spider.list(urls="https://www.defense.gov/Newsroom/", expresses={"title":"//a[@class='title']//text()", "link":"//a[@class='title']//@href"}, fields={"title":"title", "text":"link"})
     spider.run()
 
 
@@ -14,4 +13,5 @@ def test02():
     spider.run()
 
 
-# test01()
+test01()
+test01()

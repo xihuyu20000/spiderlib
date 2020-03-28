@@ -14,7 +14,7 @@ def test_FilePipeline1():
     结果写入到一个文件a.txt中
     :return:
     """
-    spider = Spider('博客园精华')
+    spider = Spider('博客园精华', pipeline=FilePipeline("/tmp/bbbbb"))
     spider.list(urls=["https://www.cnblogs.com/#p1","https://www.cnblogs.com/#p2","https://www.cnblogs.com/#p3"], expresses={"text":"//a[@class='titlelnk']//text()", "link":"//a[@class='titlelnk']//@href"}, next='link', fields={"标题":"text","网址":"link"})
     spider.page(expresses={"title":"//a[@id='cb_post_title_url']//text()", "content":"//div[@id='cnblogs_post_body']//text()"}, fields={"标题":'title', "正文":"content"})
     spider.run()

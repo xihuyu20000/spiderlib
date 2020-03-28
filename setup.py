@@ -29,7 +29,7 @@ else:
 
 setuptools.setup(
     name="spiderlibs",
-    version="0.0.9",
+    version="0.0.12",
     author="wu chao",
     license='MIT License',
     author_email="377486624@qq.com",
