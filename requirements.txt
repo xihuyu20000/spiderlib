@@ -1,6 +1,6 @@
 feedparser==5.2.1
 lxml==4.5.0
-numpy==1.18.1
+numpy==1.22.0
 PyMySQL==0.9.3
 redis==3.4.1
 requests==2.23.0
