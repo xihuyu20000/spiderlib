@@ -6,4 +6,4 @@ redis==3.4.1
 requests==2.23.0
 pymongo==3.10.1
 twine==3.1.1
-wheel==0.34.2
+wheel==0.38.1
